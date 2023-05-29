@@ -1,0 +1,2 @@
+# minesweeper
+AI for minesweeper
