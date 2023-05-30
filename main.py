@@ -1,31 +1,11 @@
 import random
-from dataclasses import dataclass
 
 import pyautogui
-# import ImageGrab
-# import Pillow
 from PIL import ImageGrab
 from board import Board
+from board_configs import BeginnerMinesweeperOnline, ExpertMinesweeperOnline
 from utils import Square
 
-# https://minesweeper.online
-
-square_size = 24
-
-
-@dataclass
-class Beginner:
-    top_left = (735, 327.5)
-    board_size = (9, 9)
-    n_bombs = 10
-
-
-@dataclass
-class Expert:
-    top_left = (703, 325)
-    board_size = (30, 16)
-    n_bombs = 99
-# pyautogui.moveTo(705, 330, duration = 1)
 
 px = ImageGrab.grab().load()
 
@@ -43,7 +23,8 @@ def find_unknown_neighbors(square, board):
 
 
 def calc_probs(board):
-    marked_bombs = 0
+    print("calculating probabilities")
+    marked_bombs = []
     for col in range(board.cols):
         for row in range(board.rows):
             sq = board.board[col][row]
@@ -60,15 +41,16 @@ def calc_probs(board):
                         x, y = board.get_sq_coords(unknown_sq)
                         pyautogui.leftClick(x=x, y=y)
                 else:
-                    # print(f"open_neihbors ({sq}) = {unknown_neigh}")
+                    # print(f"({col}, {row}) prob per unknown neighbor =  {num_bombs} / {len(unknown_neigh)} -- open_neihbors = {unknown_neigh}")
                     prob_per_square = num_bombs / len(unknown_neigh)
                     for neighbor in unknown_neigh:
                         if prob_per_square == 1:
                             _mark_bomb(board=board, sq=neighbor)
-                            marked_bombs += 1
+                            marked_bombs.append(neighbor)
                         else:
                             neighbor.add_prob(prob_per_square)
-                            print(f"{neighbor} -- prob = {prob_per_square}")
+                            # print(f"{neighbor} -- prob = {prob_per_square}")
+    return marked_bombs
 
 
 def _mark_bomb(board, sq):
@@ -91,12 +73,13 @@ def mark_bombs(board, thresh=0.9):
                     continue
                 print(f"({sq}) --- {unknowns_sorted=} --- {flagged_neigh=}")
                 unknowns_sorted.sort(key=lambda x: x[0])
-                top_prob, top_unknown = unknowns_sorted[0]
+                _, top_unknown = unknowns_sorted[0]
 
-                if top_prob >= thresh:
+                updated_top_prob = (int(sq.value) - len(flagged_neigh)) / len(unknowns_sorted)
+                if updated_top_prob >= thresh:
                     _mark_bomb(board, sq=top_unknown)
                     flagged.append(top_unknown)
-                    print(f"setting board[{col}][{row}] = {Square.FLAG}")
+                    print(f"setting board[{col}][{row}] = {Square.FLAG} with prob {updated_top_prob}")
                     board.print_board()
     return flagged
 
@@ -105,7 +88,9 @@ def middle_click_flagged_neighbors(board, flagged):
     clicks = 0
     for flagged_sq in flagged:
         _, _, num_neighbors = find_unknown_neighbors(square=flagged_sq, board=board.board)
+        print(f"inside middle_click_flagged_neighbors. flagged = {flagged} - num-neighbors = {num_neighbors}")
         for num_sq in num_neighbors:
+            print(f"middle-clicking {num_sq} which is neighbor of flagged: {flagged_sq}")
             x, y = board.get_sq_coords(num_sq)
             pyautogui.middleClick(x=x, y=y)
             clicks += 1
@@ -132,17 +117,18 @@ def random_open_a_square(board):
     px = ImageGrab.grab().load()
 
 
-def open_four_corners(board):
+def open_corners(board):
     global px
-    for sq in [board.board[0][0], board.board[0][board.rows - 1],
-               board.board[board.cols - 1][board.rows - 1], board.board[board.cols - 1][0]]:
+    for sq in [board.board[0][0],
+               # board.board[0][board.rows - 1],
+               # board.board[board.cols - 1][board.rows - 1],
+               board.board[board.cols - 1][0]]:
         x, y = board.get_sq_coords(sq)
         pyautogui.leftClick(x=x, y=y)
-        px = ImageGrab.grab().load()
+    px = ImageGrab.grab().load()
 
 
 def is_game_over(board):
-    # return board.n_bombs == board.n_flagged
     print(f"n_bombs = {board.n_bombs} , n_flagged = {board.n_flagged} --> is over? {board.n_bombs == board.n_flagged}")
     return board.n_bombs == board.n_flagged
 
@@ -150,22 +136,27 @@ def is_game_over(board):
 def main(board_level):
     pyautogui.moveTo(board_level.top_left[0], board_level.top_left[1], duration=1)
     board = Board(cols=board_level.board_size[0], rows=board_level.board_size[1],
-                  top_left_pixels=board_level.top_left, square_size=square_size, n_bombs=board_level.n_bombs)
+                  top_left_pixels=board_level.top_left, square_size=board_level.square_size, n_bombs=board_level.n_bombs,
+                  offset=board_level.offset)
     # random_open_a_square(board)
-    open_four_corners(board)
+    open_corners(board)
 
     while not is_game_over(board):
-        flagged = []
-        thresh = 0.9
-        board.refresh_board()
+        board.refresh_board(debug=False)
         board.print_board()
-        print("calculating probabilities")
         marked_bombs = calc_probs(board=board)
-        if marked_bombs:
+        # First Inner while - mark certain bombs then refresh, recalc and so on...
+        while marked_bombs:
+            print("iterating due to marked-bombs")
+            middle_click_flagged_neighbors(board=board, flagged=marked_bombs)
             board.refresh_board()
             board.print_board()
+            marked_bombs = calc_probs(board=board)
 
-        while len(flagged) == 0 and thresh >= 0.5:
+        flagged = []
+        thresh = 0.9
+        # Second inner while - click on squares with high prob
+        while len(flagged) == 0 and thresh >= 0.3:
             non_bomb_prob = (board.n_bombs - board.n_flagged) / board.n_unknowns
             print(f"({board.n_bombs} - {board.n_flagged}) / {board.n_unknowns} = {non_bomb_prob=}")
 
@@ -179,6 +170,16 @@ def main(board_level):
             middle_click_flagged_neighbors(board=board, flagged=flagged)
 
 
+def read_board(board_level=BeginnerMinesweeperOnline):
+    board = Board(cols=board_level.board_size[0], rows=board_level.board_size[1],
+                  top_left_pixels=board_level.top_left, square_size=board_level.square_size,
+                  n_bombs=board_level.n_bombs, offset=board_level.offset)
+
+    board.refresh_board(debug=True)
+    board.print_board()
+
+
 if __name__ == '__main__':
     # main(board_level=Beginner)
-    main(board_level=Expert)
+    main(board_level=ExpertMinesweeperOnline)
+    # read_board(board_level=BeginnerMinesweeperOnline)

@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 import pyautogui
 from PIL import ImageGrab
 
-from utils import _infer_color, Square
+from utils import _infer_square, Square
 
 
 @dataclass
@@ -34,7 +34,7 @@ class SquareData:
 
 
 class Board:
-    def __init__(self, cols, rows, top_left_pixels, square_size, n_bombs):
+    def __init__(self, cols, rows, top_left_pixels, square_size, n_bombs, offset):
         self.cols = cols
         self.rows = rows
         self.top_left_pixels = top_left_pixels
@@ -43,7 +43,9 @@ class Board:
         self.n_flagged = 0
         self.n_bombs = n_bombs
         self.n_unknowns = 0
+        self.offset = offset
 
+        # Init self.board with empty unknown arrays
         for col in range(cols):
             empty_row = []
             for row in range(rows):
@@ -51,38 +53,52 @@ class Board:
             self.board.append(empty_row)
 
     def set(self, x, y, val):
-            sd = SquareData(value=val.value,
-                            bomb_prob=[],
-                            board_index=(x, y))
-            self.board[x][y] = sd
+        sd = SquareData(value=val.value,
+                        bomb_prob=[],
+                        board_index=(x, y))
+        self.board[x][y] = sd
 
     def print_board(self):
         for row in range(self.rows):
             print("")
             for col in range(self.cols):
                 print(self.board[col][row].value, end=" ")
+        print("")
 
     def get_sq_coords(self, sq: SquareData):
-        x = self.top_left_pixels[0] + ((self.square_size * sq.board_index[0]) + (self.square_size / 2))
+        x = self.top_left_pixels[0] + (((self.square_size - 0.5) * sq.board_index[0]) + (self.square_size / 2))
         y = self.top_left_pixels[1] + ((self.square_size * sq.board_index[1]) + (self.square_size / 2))
         return x, y
 
-    def refresh_board(self):
+    def _get_surrounding_pixels(self, px, x, y):
+        res = {px[x, y]}
+        for i in range(int((self.square_size/2) - 1)):
+            for j in range(int((self.square_size / 2) - 1)):
+                res.add(px[x + i, y + j])
+                res.add(px[x - i, y + j])
+                res.add(px[x + i, y - j])
+                res.add(px[x - i, y - j])
+        return res
+
+    def refresh_board(self, debug=False):
         self.n_unknowns = 0
 
         time.sleep(0.1)
         px = ImageGrab.grab().load()
         for col in range(self.cols):
             for row in range(self.rows):
-                x = self.top_left_pixels[0] + ((self.square_size * col) + (self.square_size / 2))
+                x = self.top_left_pixels[0] + (((self.square_size-self.offset) * col) + (self.square_size / 2))
                 y = self.top_left_pixels[1] + ((self.square_size * row) + (self.square_size / 2))
-                # pyautogui.moveTo(x, y, duration=0.0)
-                colors = {px[x, y], px[x+1, y+1], px[x+3, y], px[x+6, y], px[x-6, y], px[x-6, y+2], px[x-6, y-2]}
-                color = _infer_color(x,y, colors, px, board_coord=(col, row))
-                if color == Square.BOMB:
+                if debug:
+                    pyautogui.moveTo(x, y, duration=0.0)
+                surrounding_colors = self._get_surrounding_pixels(px, x, y)
+                sq = _infer_square(x, y, surrounding_colors, px, board_coord=(col, row))
+                print(f"({col}, {row}) from colors {surrounding_colors} inferred --> {sq}")
+                if sq == Square.BOMB:
                     print(f"bomb detected")
-                    exit()
-                elif color == Square.UNKNOWN:
+                    if not debug:
+                        exit()
+                elif sq == Square.UNKNOWN:
                     self.n_unknowns += 1
                 # print(f"({col}, {row}) {colors} --> {color}")
-                self.set(col, row, color)
+                self.set(col, row, sq)
