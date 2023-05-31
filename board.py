@@ -1,8 +1,8 @@
 import time
-from dataclasses import dataclass, field
-
 import pyautogui
+
 from PIL import ImageGrab
+from dataclasses import dataclass, field
 
 from utils import _infer_square, Square
 
@@ -44,6 +44,7 @@ class Board:
         self.n_bombs = n_bombs
         self.n_unknowns = 0
         self.offset = offset
+        self.all_bombs_marked = False
 
         # Init self.board with empty unknown arrays
         for col in range(cols):
@@ -82,6 +83,7 @@ class Board:
 
     def refresh_board(self, debug=False):
         self.n_unknowns = 0
+        self.n_flagged = 0
 
         time.sleep(0.1)
         px = ImageGrab.grab().load()
@@ -100,5 +102,10 @@ class Board:
                         exit()
                 elif sq == Square.UNKNOWN:
                     self.n_unknowns += 1
-                # print(f"({col}, {row}) {colors} --> {color}")
+                elif sq == Square.FLAG:
+                    self.n_flagged += 1
                 self.set(col, row, sq)
+
+        if self.n_flagged == self.n_bombs:
+            print(f"all bombs are marked!")
+            self.all_bombs_marked = True
